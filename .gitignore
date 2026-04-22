@@ -1,0 +1,9 @@
+backend/.venv/
+backend/__pycache__/
+backend/*.log
+frontend/*.log
+.env
+.env.*
+!.env.example
+.vscode/settings.json
+*.pyc
