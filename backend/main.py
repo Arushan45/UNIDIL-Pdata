@@ -22,10 +22,15 @@ except ImportError:
 
 app = FastAPI()
 
+allowed_origin_regex = os.getenv(
+    "ALLOWED_ORIGIN_REGEX",
+    r"https?://(localhost|127\.0\.0\.1)(:\d+)?|https://.*\.vercel\.app",
+)
+
 # Enable CORS so React (Port 3000) can talk to FastAPI (Port 8000)
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origin_regex=allowed_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
