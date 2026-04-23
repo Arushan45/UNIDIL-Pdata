@@ -67,6 +67,7 @@ def get_db_connection():
 # Define the expected format of incoming data
 class ProductionData(BaseModel):
     plant_id: int
+    production_date: str
     metrics: Dict[str, Any]
 
 
@@ -218,8 +219,8 @@ def submit_data(data: ProductionData):
         
         # Save the dynamic JSON data to PostgreSQL
         cur.execute(
-            "INSERT INTO production_data (plant_id, metrics) VALUES (%s, %s);",
-            (data.plant_id, json.dumps(data.metrics))
+            "INSERT INTO production_data (plant_id, production_date, metrics) VALUES (%s, %s, %s);",
+            (data.plant_id, data.production_date, json.dumps(data.metrics))
         )
         conn.commit() # Don't forget to commit!
         

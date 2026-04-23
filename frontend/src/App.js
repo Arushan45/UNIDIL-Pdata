@@ -4,6 +4,7 @@ const API_BASE_URL = "http://127.0.0.1:8001";
 function DynamicPlantForm({ plantId }) {
   const [schema, setSchema] = useState(null);
   const [formData, setFormData] = useState({});
+  const [productionDate, setProductionDate] = useState(new Date().toISOString().split("T")[0]);
   const [error, setError] = useState("");
   const [isAddingField, setIsAddingField] = useState(false);
   const [newField, setNewField] = useState({ name: "", label: "", type: "number" });
@@ -41,6 +42,7 @@ function DynamicPlantForm({ plantId }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           plant_id: plantId,
+          production_date: productionDate,
           metrics: formData
         })
       });
@@ -129,27 +131,47 @@ function DynamicPlantForm({ plantId }) {
   };
 
   if (error) {
-    return <p style={{ color: "crimson" }}>Error: {error}</p>;
+    return (
+      <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+        Error: {error}
+      </div>
+    );
   }
 
   if (schema === null) {
-    return <p>Loading secure form...</p>;
+    return <p className="text-slate-600">Loading secure form...</p>;
   }
 
-  return (
-    <div style={{ marginTop: "20px" }}>
-      {schema.length === 0 ? (
-        <p>No schema found for this plant yet.</p>
+  const corrugatorFields = schema.filter((field) => field.name?.includes("corrugator"));
+  const tuberFields = schema.filter((field) => field.name?.includes("tuber"));
+  const otherFields = schema.filter((field) => !field.name?.includes("corrugator") && !field.name?.includes("tuber"));
+
+  const renderFieldCard = (title, subtitle, fields, accentClass) => (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="mb-3 flex items-center justify-between sm:mb-4">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+          <p className="text-xs text-slate-500">{subtitle}</p>
+        </div>
+        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${accentClass}`}>
+          {fields.length} fields
+        </span>
+      </div>
+
+      {fields.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
+          No fields in this section.
+        </p>
       ) : (
-        <form onSubmit={handleSubmit} style={{ border: "1px solid #ccc", padding: "20px", borderRadius: "8px" }}>
-          {schema.map((field) => (
-            <div key={field.name} style={{ marginBottom: "15px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", marginBottom: "5px" }}>
-                <label style={{ display: "block", fontWeight: "bold", marginBottom: 0 }}>{field.label}</label>
+        <div className="space-y-3.5 sm:space-y-4">
+          {fields.map((field) => (
+            <div key={field.name}>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <label className="text-sm font-medium text-slate-700">{field.label}</label>
                 <button
                   type="button"
                   onClick={() => handleRemoveField(field)}
-                  style={{ backgroundColor: "#B91C1C", color: "white", padding: "6px 10px", border: "none", borderRadius: "5px", cursor: "pointer" }}
+                  className="rounded-md bg-rose-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:ring-offset-1"
                 >
                   Remove
                 </button>
@@ -160,51 +182,110 @@ function DynamicPlantForm({ plantId }) {
                 value={formData[field.name] || ""}
                 onChange={handleChange}
                 required
-                style={{ width: "100%", padding: "8px", boxSizing: "border-box" }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               />
             </div>
           ))}
-          <button type="submit" style={{ backgroundColor: "#007BFF", color: "white", padding: "10px 15px", border: "none", borderRadius: "5px", cursor: "pointer" }}>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-5 lg:space-y-6">
+      {schema.length === 0 ? (
+        <p className="rounded-lg border border-slate-200 bg-white p-4 text-slate-600 shadow-sm">
+          No schema found for this plant yet.
+        </p>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-5 lg:space-y-6">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <label className="mb-2 block text-sm font-semibold text-slate-800">Production Date</label>
+            <input
+              type="date"
+              value={productionDate}
+              onChange={(e) => setProductionDate(e.target.value)}
+              required
+              className="w-full max-w-xs rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-5">
+            {renderFieldCard(
+              "Corrugator Metrics",
+              "Planned, actual, yield, rejections, and stoppages",
+              corrugatorFields,
+              "bg-blue-100 text-blue-700"
+            )}
+            {renderFieldCard(
+              "Tuber Metrics",
+              "Planned, actual, yield, rejections, and stoppages",
+              tuberFields,
+              "bg-cyan-100 text-cyan-700"
+            )}
+            {renderFieldCard(
+              "Other / General",
+              "Printing, finishing, and custom machine fields",
+              otherFields,
+              "bg-slate-100 text-slate-700"
+            )}
+          </div>
+
+          <button
+            type="submit"
+            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
+          >
             Submit Production Data
           </button>
         </form>
       )}
 
-      <div style={{ border: "1px dashed #999", padding: "16px", borderRadius: "8px", marginTop: "16px", backgroundColor: "#fafafa" }}>
-        {!isAddingField ? (
-          <button
-            type="button"
-            onClick={() => setIsAddingField(true)}
-            style={{ backgroundColor: "#111827", color: "white", padding: "10px 14px", border: "none", borderRadius: "6px", cursor: "pointer" }}
-          >
-            + Add New Data Field
-          </button>
-        ) : (
-          <form onSubmit={handleAddNewField}>
-            <div style={{ marginBottom: "12px" }}>
-              <label style={{ display: "block", fontWeight: "bold", marginBottom: "6px" }}>Field Label</label>
+      <div className="rounded-xl border border-slate-200 bg-gray-100 p-4 shadow-inner sm:p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">Builder / Admin Zone</h3>
+            <p className="text-xs text-slate-600">Add custom fields to this plant schema.</p>
+          </div>
+          {!isAddingField && (
+            <button
+              type="button"
+              onClick={() => setIsAddingField(true)}
+              className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+            >
+              + Add New Data Field
+            </button>
+          )}
+        </div>
+
+        {isAddingField && (
+          <form onSubmit={handleAddNewField} className="space-y-4 rounded-lg border border-slate-300 bg-white p-3.5 sm:p-4">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Field Label</label>
               <input
                 type="text"
                 value={newField.label}
                 onChange={(e) => setNewField({ ...newField, label: e.target.value })}
                 placeholder="e.g., Shift Temperature"
                 required
-                style={{ width: "100%", padding: "8px", boxSizing: "border-box" }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               />
             </div>
-            <div style={{ marginBottom: "12px" }}>
-              <label style={{ display: "block", fontWeight: "bold", marginBottom: "6px" }}>Data Type</label>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Data Type</label>
               <select
                 value={newField.type}
                 onChange={(e) => setNewField({ ...newField, type: e.target.value })}
-                style={{ width: "100%", padding: "8px", boxSizing: "border-box" }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               >
                 <option value="number">Number</option>
                 <option value="text">Text</option>
               </select>
             </div>
-            <div style={{ display: "flex", gap: "10px" }}>
-              <button type="submit" style={{ backgroundColor: "#0F766E", color: "white", padding: "10px 14px", border: "none", borderRadius: "6px", cursor: "pointer" }}>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="submit"
+                className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+              >
                 Save Field
               </button>
               <button
@@ -213,7 +294,7 @@ function DynamicPlantForm({ plantId }) {
                   setIsAddingField(false);
                   setNewField({ name: "", label: "", type: "number" });
                 }}
-                style={{ backgroundColor: "#9CA3AF", color: "white", padding: "10px 14px", border: "none", borderRadius: "6px", cursor: "pointer" }}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:ring-offset-2"
               >
                 Cancel
               </button>
@@ -262,39 +343,44 @@ function FactoryChatbot() {
   };
 
   return (
-    <div style={{ border: "1px solid #444", padding: "20px", borderRadius: "8px", marginTop: "30px", backgroundColor: "#f9f9f9" }}>
-      <h2 style={{ marginTop: 0 }}>Factory AI Assistant</h2>
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <h2 className="mb-4 text-lg font-semibold text-slate-900 sm:text-xl">Factory AI Assistant</h2>
 
-      <div style={{ height: "220px", overflowY: "auto", border: "1px solid #ddd", padding: "10px", marginBottom: "10px", backgroundColor: "#fff", borderRadius: "6px" }}>
-        {chatLog.length === 0 && <p style={{ margin: 0, color: "#666" }}>Ask about plant schemas, production trends, or submitted metrics.</p>}
-        {chatLog.map((msg, i) => (
-          <div key={i} style={{ textAlign: msg.sender === "user" ? "right" : "left", margin: "10px 0" }}>
-            <span
-              style={{
-                backgroundColor: msg.sender === "user" ? "#007BFF" : "#E2E3E5",
-                color: msg.sender === "user" ? "white" : "black",
-                padding: "8px 12px",
-                borderRadius: "15px",
-                display: "inline-block",
-                maxWidth: "85%"
-              }}
-            >
-              {msg.text}
-            </span>
-          </div>
-        ))}
-        {isLoading && <div style={{ textAlign: "left", color: "#555" }}><i>Agent is analyzing the database...</i></div>}
+      <div className="mb-4 h-52 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3 sm:h-56">
+        {chatLog.length === 0 && (
+          <p className="text-sm text-slate-500">Ask about plant schemas, production trends, or submitted metrics.</p>
+        )}
+        <div className="space-y-3">
+          {chatLog.map((msg, i) => (
+            <div key={i} className={msg.sender === "user" ? "text-right" : "text-left"}>
+              <span
+                className={
+                  msg.sender === "user"
+                    ? "inline-block max-w-[85%] rounded-2xl bg-blue-600 px-3 py-2 text-sm text-white"
+                    : "inline-block max-w-[85%] rounded-2xl bg-slate-200 px-3 py-2 text-sm text-slate-800"
+                }
+              >
+                {msg.text}
+              </span>
+            </div>
+          ))}
+          {isLoading && <p className="text-sm italic text-slate-500">Agent is analyzing the database...</p>}
+        </div>
       </div>
 
-      <form onSubmit={handleAsk} style={{ display: "flex", gap: "10px" }}>
+      <form onSubmit={handleAsk} className="flex flex-col gap-2.5 sm:flex-row">
         <input
           type="text"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder="e.g., What schema fields exist for plant 1?"
-          style={{ flexGrow: 1, padding: "10px" }}
+          placeholder="e.g., What schema fields exist for UNIDIL?"
+          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
         />
-        <button type="submit" disabled={isLoading} style={{ padding: "10px 20px", backgroundColor: "#28A745", color: "white", border: "none", cursor: "pointer", borderRadius: "5px" }}>
+        <button
+          type="submit"
+          disabled={isLoading}
+          className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
           Ask Data
         </button>
       </form>
@@ -303,20 +389,27 @@ function FactoryChatbot() {
 }
 
 function App() {
-  const [selectedPlant, setSelectedPlant] = useState(1);
+  const [selectedPlant, setSelectedPlant] = useState(3);
 
   return (
-    <div style={{ fontFamily: "Arial", maxWidth: "800px", margin: "50px auto" }}>
-      <h1>Factory Command Center</h1>
-      <p>Select your plant to enter production data:</p>
-      <button onClick={() => setSelectedPlant(1)} style={{ marginRight: "10px", padding: "10px" }}>
-        Corrugator Plant (Plant 1)
-      </button>
-      <button onClick={() => setSelectedPlant(2)} style={{ padding: "10px" }}>
-        Converting Plant (Plant 2)
-      </button>
-      <FactoryChatbot />
-      <DynamicPlantForm plantId={selectedPlant} />
+    <div className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-5 lg:space-y-6">
+        <header className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-4">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Factory Command Center</h1>
+            <p className="mt-1 text-sm text-slate-600 sm:text-base">Select your plant to enter production data.</p>
+          </div>
+          <button
+            onClick={() => setSelectedPlant(3)}
+            className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
+          >
+            UNIDIL
+          </button>
+        </header>
+
+        <FactoryChatbot />
+        <DynamicPlantForm plantId={selectedPlant} />
+      </div>
     </div>
   );
 }
