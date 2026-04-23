@@ -3,10 +3,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import Dict, Any
+from functools import lru_cache
 import os
+from pathlib import Path
+from urllib.parse import quote_plus
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import json
+
+try:
+    from langchain_community.agent_toolkits import create_sql_agent
+    from langchain_community.utilities.sql_database import SQLDatabase
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:
+    create_sql_agent = None
+    SQLDatabase = None
+    ChatGoogleGenerativeAI = None
 
 app = FastAPI()
 
@@ -18,6 +30,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+def load_env_file():
+    base_dir = Path(__file__).resolve().parent
+    env_paths = [base_dir / ".env", base_dir.parent / ".env"]
+
+    for env_path in env_paths:
+        if not env_path.exists():
+            continue
+
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip("\"'")
+            os.environ.setdefault(key, value)
+
+
+load_env_file()
 
 # Database connection settings
 DB_SETTINGS = {
@@ -35,6 +68,50 @@ def get_db_connection():
 class ProductionData(BaseModel):
     plant_id: int
     metrics: Dict[str, Any]
+
+
+class NewField(BaseModel):
+    name: str
+    label: str
+    type: str
+
+
+class ChatQuery(BaseModel):
+    question: str
+
+
+def build_sqlalchemy_db_uri():
+    user = quote_plus(str(DB_SETTINGS["user"]))
+    password = quote_plus(str(DB_SETTINGS["password"]))
+    host = DB_SETTINGS["host"]
+    port = DB_SETTINGS["port"]
+    dbname = quote_plus(str(DB_SETTINGS["dbname"]))
+    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
+
+
+@lru_cache(maxsize=1)
+def get_agent_executor():
+    if create_sql_agent is None or SQLDatabase is None or ChatGoogleGenerativeAI is None:
+        raise RuntimeError(
+            "AI dependencies are not installed. Install langchain, langchain-community, "
+            "langchain-google-genai, and sqlalchemy in backend/.venv."
+        )
+
+    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY is missing. Add it to your local .env file.")
+
+    db = SQLDatabase.from_uri(build_sqlalchemy_db_uri())
+    llm = ChatGoogleGenerativeAI(
+        model=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
+        temperature=0,
+        google_api_key=api_key,
+    )
+    return create_sql_agent(
+        llm=llm,
+        db=db,
+        verbose=True,
+    )
 
 # --- ENDPOINTS ---
 
@@ -59,6 +136,80 @@ def get_schema(plant_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.put("/schema/{plant_id}/add-field")
+def add_field_to_schema(plant_id: int, field: NewField):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT form_schema FROM plant_schemas WHERE plant_id = %s;", (plant_id,))
+        result = cur.fetchone()
+
+        if result is None:
+            raise HTTPException(status_code=404, detail="Plant not found")
+
+        schema = result["form_schema"] or {}
+        fields = schema.get("fields")
+        if not isinstance(fields, list):
+            fields = []
+
+        field_payload = field.model_dump()
+        duplicate = next((item for item in fields if item.get("name") == field_payload["name"]), None)
+        if duplicate is not None:
+            raise HTTPException(status_code=400, detail="Field name already exists for this plant")
+
+        fields.append(field_payload)
+        schema["fields"] = fields
+
+        cur.execute(
+            "UPDATE plant_schemas SET form_schema = %s::jsonb WHERE plant_id = %s;",
+            (json.dumps(schema), plant_id),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"status": "success", "form_schema": schema}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/schema/{plant_id}/remove-field/{field_name}")
+def remove_field_from_schema(plant_id: int, field_name: str):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT form_schema FROM plant_schemas WHERE plant_id = %s;", (plant_id,))
+        result = cur.fetchone()
+
+        if result is None:
+            raise HTTPException(status_code=404, detail="Plant not found")
+
+        schema = result["form_schema"] or {}
+        fields = schema.get("fields")
+        if not isinstance(fields, list):
+            fields = []
+
+        filtered_fields = [item for item in fields if item.get("name") != field_name]
+        if len(filtered_fields) == len(fields):
+            raise HTTPException(status_code=404, detail="Field not found for this plant")
+
+        schema["fields"] = filtered_fields
+        cur.execute(
+            "UPDATE plant_schemas SET form_schema = %s::jsonb WHERE plant_id = %s;",
+            (json.dumps(schema), plant_id),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"status": "success", "form_schema": schema}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/data/submit")
 def submit_data(data: ProductionData):
     try:
@@ -75,5 +226,26 @@ def submit_data(data: ProductionData):
         cur.close()
         conn.close()
         return {"status": "success", "message": "Data securely saved to PostgreSQL"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat")
+def chat_with_data(query: ChatQuery):
+    try:
+        agent_executor = get_agent_executor()
+        custom_prompt = f"""
+You are a helpful factory data analyst.
+The user is asking: "{query.question}"
+
+Important rules:
+- Use the SQL tools to inspect available tables before answering.
+- The production_data.metrics column stores JSON/JSONB-style plant metrics.
+- Check plant_schemas when you need to understand which metric keys exist for each plant.
+- Never make INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, or other write operations.
+- Answer based only on the database results you retrieve.
+"""
+        response = agent_executor.invoke({"input": custom_prompt})
+        return {"answer": response["output"]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -16,19 +16,16 @@ cd backend
 pip install fastapi uvicorn psycopg2-binary
 ```
 
-Set database environment variables:
+Create a local `.env` from the example and fill in your PostgreSQL password:
 
 ```powershell
-$env:DB_NAME="factory_db"
-$env:DB_USER="postgres"
-$env:DB_PASSWORD="your_password"
-$env:DB_HOST="localhost"
-$env:DB_PORT="5433"
+Copy-Item .env.example .env
 ```
 
 Run the API:
 
 ```powershell
+cd backend
 uvicorn main:app --host 127.0.0.1 --port 8001
 ```
 
